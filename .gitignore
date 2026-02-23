@@ -1,0 +1,40 @@
+# BotMedia
+.env
+*.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java
+backend/**/target/
+*.class
+*.jar
+*.log
+
+# Node
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+
+# Docker
+deployment/docker/ssl/
+
+# Secrets
+**/credentials.json
+**/apiclient_cert.p12
+
+# Generated images
+vibe_images/
+
+# Logs
+logs/

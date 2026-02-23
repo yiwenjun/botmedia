@@ -1,0 +1,37 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: wechat-service
+  config:
+    import: optional:configserver:http://localhost:8888
+  cloud:
+    config:
+      fail-fast: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# WeChat Official Account (MP) Configuration
+wechat:
+  mp:
+    app-id: ${WECHAT_MP_APP_ID:your-mp-app-id}
+    app-secret: ${WECHAT_MP_APP_SECRET:your-mp-app-secret}
+    token: ${WECHAT_MP_TOKEN:your-mp-token}
+    encoding-aes-key: ${WECHAT_MP_AES_KEY:your-mp-aes-key}
+  
+  # WeChat Mini Program Configuration
+  miniapp:
+    app-id: ${WECHAT_MINIAPP_APP_ID:your-miniapp-app-id}
+    app-secret: ${WECHAT_MINIAPP_APP_SECRET:your-miniapp-app-secret}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

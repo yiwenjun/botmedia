@@ -1,0 +1,91 @@
+name: Deploy to Alibaba Cloud ECS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOCKER_REGISTRY: registry.cn-hangzhou.aliyuncs.com
+  DOCKER_NAMESPACE: botmedia
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build backend
+        run: mvn clean package -DskipTests -B
+        working-directory: backend
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Build brand website
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+        working-directory: frontend/brand-website
+
+      - name: Build admin dashboard
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+        working-directory: frontend/admin-dashboard
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Alibaba Cloud Container Registry
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.DOCKER_REGISTRY }} -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+
+      - name: Build and push Docker images
+        if: github.event_name == 'push'
+        run: |
+          COMMIT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          SERVICES="eureka-server config-server api-gateway user-service content-service product-service wechat-service payment-service media-service analytics-service notification-service"
+
+          for SERVICE in $SERVICES; do
+            echo "Building $SERVICE..."
+            docker build -f deployment/docker/Dockerfile.service \
+              --build-arg SERVICE_NAME=$SERVICE \
+              -t $DOCKER_REGISTRY/$DOCKER_NAMESPACE/$SERVICE:$COMMIT_SHA \
+              -t $DOCKER_REGISTRY/$DOCKER_NAMESPACE/$SERVICE:latest \
+              backend/
+            docker push $DOCKER_REGISTRY/$DOCKER_NAMESPACE/$SERVICE:$COMMIT_SHA
+            docker push $DOCKER_REGISTRY/$DOCKER_NAMESPACE/$SERVICE:latest
+          done
+
+      - name: Deploy to ECS
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/botmedia
+            git pull origin main
+            cd deployment
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d
+            echo "Deployment complete!"
+            docker-compose -f docker-compose.prod.yml ps
+
+      - name: Health check
+        if: github.event_name == 'push'
+        run: |
+          echo "Waiting for services to start..."
+          sleep 30
+          curl -sf http://${{ secrets.ECS_HOST }}:8761/actuator/health || echo "Eureka health check pending..."

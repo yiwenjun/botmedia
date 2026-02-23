@@ -1,0 +1,379 @@
+version: '3.8'
+
+services:
+  # ==================== Infrastructure ====================
+  mysql:
+    image: mysql:8.0
+    container_name: botmedia-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: botmedia-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: botmedia-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  # ==================== Spring Cloud Infrastructure ====================
+  eureka-server:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.eureka
+    container_name: botmedia-eureka
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  config-server:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.config
+    container_name: botmedia-config
+    ports:
+      - "8888:8888"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  api-gateway:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.gateway
+    container_name: botmedia-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      JWT_SECRET: ${JWT_SECRET:-BotMedia2026SecretKeyForJwtTokenGeneration256Bits!}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  # ==================== Business Services ====================
+  user-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: user-service
+    container_name: botmedia-user
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET:-BotMedia2026SecretKeyForJwtTokenGeneration256Bits!}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  content-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: content-service
+    container_name: botmedia-content
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      REDIS_HOST: redis
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  product-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: product-service
+    container_name: botmedia-product
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      REDIS_HOST: redis
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  wechat-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: wechat-service
+    container_name: botmedia-wechat
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      WECHAT_APP_ID: ${WECHAT_APP_ID:-}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET:-}
+      WECHAT_TOKEN: ${WECHAT_TOKEN:-}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  payment-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: payment-service
+    container_name: botmedia-payment
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      REDIS_HOST: redis
+      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
+      WECHAT_PAY_API_KEY: ${WECHAT_PAY_API_KEY:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  media-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: media-service
+    container_name: botmedia-media
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-}
+      ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET:-}
+      ALIYUN_ACCESS_KEY_ID: ${ALIYUN_ACCESS_KEY_ID:-}
+      ALIYUN_ACCESS_KEY_SECRET: ${ALIYUN_ACCESS_KEY_SECRET:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  analytics-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: analytics-service
+    container_name: botmedia-analytics
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  notification-service:
+    build:
+      context: ../../backend
+      dockerfile: ../deployment/docker/Dockerfile.service
+      args:
+        SERVICE_NAME: notification-service
+    container_name: botmedia-notification
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  # ==================== Frontend ====================
+  brand-website:
+    build:
+      context: ../../frontend/brand-website
+      dockerfile: ../../deployment/docker/Dockerfile.nextjs
+    container_name: botmedia-brand
+    environment:
+      NEXT_PUBLIC_API_URL: http://api-gateway:8080
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  admin-dashboard:
+    build:
+      context: ../../frontend/admin-dashboard
+      dockerfile: ../../deployment/docker/Dockerfile.admin
+    container_name: botmedia-admin
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+  # ==================== Reverse Proxy ====================
+  nginx:
+    image: nginx:alpine
+    container_name: botmedia-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api-gateway
+      - brand-website
+      - admin-dashboard
+    restart: unless-stopped
+    networks:
+      - botmedia-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+
+networks:
+  botmedia-net:
+    driver: bridge

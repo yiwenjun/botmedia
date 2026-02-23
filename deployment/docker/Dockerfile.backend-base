@@ -1,0 +1,20 @@
+FROM maven:3.8-openjdk-17-slim AS build
+WORKDIR /app
+COPY pom.xml .
+COPY common/pom.xml common/
+COPY eureka-server/pom.xml eureka-server/
+COPY config-server/pom.xml config-server/
+COPY api-gateway/pom.xml api-gateway/
+COPY user-service/pom.xml user-service/
+COPY content-service/pom.xml content-service/
+COPY product-service/pom.xml product-service/
+COPY wechat-service/pom.xml wechat-service/
+COPY payment-service/pom.xml payment-service/
+COPY media-service/pom.xml media-service/
+COPY analytics-service/pom.xml analytics-service/
+COPY notification-service/pom.xml notification-service/
+RUN mvn dependency:go-offline -B || true
+COPY . .
+RUN mvn clean package -DskipTests -B
+
+# Individual service images built from the base

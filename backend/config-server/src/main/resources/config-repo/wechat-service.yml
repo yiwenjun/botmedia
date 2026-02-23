@@ -1,0 +1,12 @@
+server:
+  port: 8084
+
+wechat:
+  mp:
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    token: ${WECHAT_TOKEN:}
+    encoding-aes-key: ${WECHAT_ENCODING_AES_KEY:}
+  miniapp:
+    app-id: ${WECHAT_MINIAPP_APP_ID:}
+    app-secret: ${WECHAT_MINIAPP_APP_SECRET:}
